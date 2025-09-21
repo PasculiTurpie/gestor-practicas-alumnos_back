@@ -1,6 +1,7 @@
 import { Practice } from "../models/Practice.model.js";
 import { Student } from "../models/Student.model.js";
 import { AppError } from "../utils/errors.js";
+import { toCsv } from "../utils/csv.js";
 
 export const createPractice = async (req, res) => {
   try {
@@ -99,5 +100,193 @@ export const getPracticeByStudent = async (req, res) => {
     res.json(practice);
   } catch (e) {
     res.status(e.status || 500).json({ message: e.message });
+  }
+};
+
+export const getPracticeStats = async (req, res) => {
+  try {
+    // Filtros opcionales: ?from=2025-01-01&to=2025-12-31
+    const { from, to } = req.query;
+    const match = {};
+    if (from || to) {
+      match.updatedAt = {};
+      if (from) match.updatedAt.$gte = new Date(from);
+      if (to) match.updatedAt.$lte = new Date(to);
+    }
+
+    const pipeline = [
+      { $match: match },
+      {
+        $facet: {
+          byStage: [
+            { $group: { _id: "$currentStage", count: { $sum: 1 } } },
+            { $project: { _id: 0, stage: "$_id", count: 1 } },
+            { $sort: { stage: 1 } },
+          ],
+          totals: [
+            {
+              $group: {
+                _id: null,
+                total: { $sum: 1 },
+                open: {
+                  $sum: {
+                    $cond: [
+                      { $ne: ["$currentStage", "NOTA_FINAL_CIERRE"] },
+                      1,
+                      0,
+                    ],
+                  },
+                },
+                closed: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ["$currentStage", "NOTA_FINAL_CIERRE"] },
+                      1,
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+            { $project: { _id: 0, total: 1, open: 1, closed: 1 } },
+          ],
+          byCenterTop5: [
+            { $group: { _id: "$studentId", p: { $first: "$$ROOT" } } }, // evitar duplicar por alumno si hubiera varias
+            {
+              $lookup: {
+                from: "students",
+                localField: "p.studentId",
+                foreignField: "_id",
+                as: "student",
+              },
+            },
+            { $unwind: "$student" },
+            { $group: { _id: "$student.practiceCenter", count: { $sum: 1 } } },
+            { $project: { _id: 0, center: "$_id", count: 1 } },
+            { $sort: { count: -1 } },
+            { $limit: 5 },
+          ],
+        },
+      },
+    ];
+
+    const [result] = await Practice.aggregate(pipeline);
+    const totals = result?.totals?.[0] || { total: 0, open: 0, closed: 0 };
+
+    res.json({
+      totals,
+      byStage: result?.byStage || [],
+      byCenterTop5: result?.byCenterTop5 || [],
+      range: { from: from || null, to: to || null },
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ message: e.message });
+  }
+};
+
+export const getPracticeStatsCsv = async (req, res) => {
+  try {
+    const { from, to, dataset = "byStage" } = req.query;
+
+    const match = {};
+    if (from || to) {
+      match.updatedAt = {};
+      if (from) match.updatedAt.$gte = new Date(from);
+      if (to) match.updatedAt.$lte = new Date(to);
+    }
+
+    const pipeline = [
+      { $match: match },
+      {
+        $facet: {
+          byStage: [
+            { $group: { _id: "$currentStage", count: { $sum: 1 } } },
+            { $project: { _id: 0, stage: "$_id", count: 1 } },
+            { $sort: { stage: 1 } },
+          ],
+          totals: [
+            {
+              $group: {
+                _id: null,
+                total: { $sum: 1 },
+                open: {
+                  $sum: {
+                    $cond: [
+                      { $ne: ["$currentStage", "NOTA_FINAL_CIERRE"] },
+                      1,
+                      0,
+                    ],
+                  },
+                },
+                closed: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ["$currentStage", "NOTA_FINAL_CIERRE"] },
+                      1,
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+            { $project: { _id: 0, total: 1, open: 1, closed: 1 } },
+          ],
+          byCenterTop5: [
+            { $group: { _id: "$studentId", p: { $first: "$$ROOT" } } },
+            {
+              $lookup: {
+                from: "students",
+                localField: "p.studentId",
+                foreignField: "_id",
+                as: "student",
+              },
+            },
+            { $unwind: "$student" },
+            { $group: { _id: "$student.practiceCenter", count: { $sum: 1 } } },
+            { $project: { _id: 0, center: "$_id", count: 1 } },
+            { $sort: { count: -1 } },
+            { $limit: 5 },
+          ],
+        },
+      },
+    ];
+
+    const [agg] = await Practice.aggregate(pipeline);
+    const totals = agg?.totals?.[0] || { total: 0, open: 0, closed: 0 };
+
+    let rows = [];
+    if (dataset === "totals") {
+      rows = [
+        { metric: "total", value: totals.total },
+        { metric: "open", value: totals.open },
+        { metric: "closed", value: totals.closed },
+      ];
+    } else if (dataset === "byCenterTop5") {
+      rows = (agg?.byCenterTop5 || []).map((r) => ({
+        center: r.center || "N/A",
+        count: r.count,
+      }));
+    } else {
+      // byStage (default)
+      rows = (agg?.byStage || []).map((r) => ({
+        stage: r.stage,
+        count: r.count,
+      }));
+    }
+
+    const csv = toCsv(rows);
+    const suffix =
+      [dataset, from ? `from-${from}` : null, to ? `to-${to}` : null]
+        .filter(Boolean)
+        .join("_") || dataset;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="practices_${suffix}.csv"`
+    );
+    res.status(200).send(csv);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 };
