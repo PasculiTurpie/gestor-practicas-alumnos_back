@@ -49,9 +49,11 @@ export const getStudent = async (req, res) => {
 
 export const updateStudent = async (req, res) => {
   try {
-    const item = await Student.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
+    const item = await Student.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true } // ✅ importante
+    );
     if (!item) throw new AppError("Alumno no encontrado", 404);
     res.json(item);
   } catch (e) {

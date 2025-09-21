@@ -11,13 +11,24 @@ import {
   studentCreateSchema,
   studentUpdateSchema,
 } from "../validators/student.schema.js";
+import { sanitizeStudentBody } from "../middlewares/sanitize.js";
 
 const router = Router();
 
-router.post("/", validate(studentCreateSchema), createStudent);
+router.post(
+  "/",
+  sanitizeStudentBody,
+  validate(studentCreateSchema),
+  createStudent
+);
 router.get("/", listStudents);
 router.get("/:id", getStudent);
-router.patch("/:id", validate(studentUpdateSchema), updateStudent);
+router.patch(
+  "/:id",
+  sanitizeStudentBody,
+  validate(studentUpdateSchema),
+  updateStudent
+);
 router.delete("/:id", removeStudent);
 
 export default router;

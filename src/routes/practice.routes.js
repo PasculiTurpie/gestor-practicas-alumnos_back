@@ -15,6 +15,7 @@ const router = Router();
 
 router.post("/", validate(practiceCreateSchema), createPractice);
 router.get("/", listPractices);
+router.get("/by-student/:studentId", getPracticeByStudent);
 router.patch("/:id/advance", validate(practiceAdvanceSchema), advanceStage);
 router.patch("/:id/grade", updateFinalGrade);
 

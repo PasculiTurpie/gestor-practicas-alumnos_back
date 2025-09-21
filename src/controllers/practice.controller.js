@@ -81,3 +81,23 @@ export const updateFinalGrade = async (req, res) => {
     res.status(e.status || 500).json({ message: e.message });
   }
 };
+
+export const getPracticeByStudent = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const student = await Student.findById(studentId);
+    if (!student) throw new AppError("Alumno no existe", 404);
+
+    const practice = await Practice.findOne({ studentId }).populate(
+      "studentId"
+    );
+    if (!practice)
+      return res
+        .status(404)
+        .json({ message: "Práctica no encontrada para este alumno" });
+
+    res.json(practice);
+  } catch (e) {
+    res.status(e.status || 500).json({ message: e.message });
+  }
+};
