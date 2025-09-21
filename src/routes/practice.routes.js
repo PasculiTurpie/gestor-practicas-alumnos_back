@@ -4,6 +4,7 @@ import {
   listPractices,
   advanceStage,
   updateFinalGrade,
+  getPracticeByStudent,
 } from "../controllers/practice.controller.js";
 import { validate } from "../middlewares/validate.js";
 import {
